@@ -1,0 +1,17 @@
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+gunicorn==23.0.0
+
+openai>=1.50.0
+requests>=2.32.3
+
+# Speech SDK for optional backend STT (browser uses JS SDK for STT + Avatar)
+azure-cognitiveservices-speech==1.41.1
+
+# Azure SQL
+sqlalchemy>=2.0.36
+pyodbc>=5.1.0
+
+# Azure AI Search
+azure-search-documents>=11.6.0
+azure-core>=1.30.0
