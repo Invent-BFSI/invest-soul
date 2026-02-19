@@ -79,6 +79,13 @@ jobs:
       #       --resource-group <YOUR_RESOURCE_GROUP> \
       #       --name ${{ env.AZURE_WEBAPP_NAME }} \
       #       --settings SCM_DO_BUILD_DURING_DEPLOYMENT=true
+      
+      - name: Ensure Oryx build is enabled (SCM_DO_BUILD_DURING_DEPLOYMENT)
+        run: |
+          az webapp config appsettings set \
+            --resource-group Innovation_BFSI \
+            --name ${{ env.AZURE_WEBAPP_NAME }} \
+            --settings SCM_DO_BUILD_DURING_DEPLOYMENT=true
 
       - name: Deploy to Azure Web App (OneDeploy)
         id: deploy-to-webapp
@@ -87,4 +94,5 @@ jobs:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
           slot-name: Production
           package: .    # <<< Deploy the root so main.py is at the app root on the server
+
 
