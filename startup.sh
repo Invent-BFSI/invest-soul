@@ -3,7 +3,7 @@ set -euo pipefail
 
 PORT="${PORT:-8000}"
 WORKERS="${WORKERS:-2}"
-TIMEOUT="${TIMEOUT:-600}"   # 600 is safer for long TTS/Avatar sessions
+TIMEOUT="${TIMEOUT:-600}"
 
 exec gunicorn main:app \
   --workers "${WORKERS}" \
