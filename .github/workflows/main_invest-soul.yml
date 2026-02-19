@@ -9,7 +9,6 @@ env:
   AZURE_WEBAPP_NAME: invest-soul
   PYTHON_VERSION: "3.10"
   ARTIFACT_NAME: python-app
-  ARTIFACT_DIR: ./python-app   # where we download the artifact in the deploy job
 
 jobs:
   build:
@@ -26,7 +25,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      # Optional but recommended: early failure detection (does not affect deploy)
+      # Optional: early failure detection (does not affect deploy)
       - name: Install dependencies locally (optional)
         run: |
           python -m venv antenv
@@ -56,18 +55,16 @@ jobs:
       contents: read
 
     steps:
-      - name: Download artifact from build job
+      - name: Download artifact from build job (to workspace root)
         uses: actions/download-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
-          path: ${{ env.ARTIFACT_DIR }}   # ensures files land in ./python-app
+          path: .   # <<< Important: unpack into root so main.py is at the extraction root
 
       - name: List downloaded files (debug)
         run: |
           echo "PWD=$(pwd)"
-          ls -la
-          echo "----- ${{ env.ARTIFACT_DIR }} -----"
-          ls -la ${{ env.ARTIFACT_DIR }} | sed -n '1,200p'
+          ls -la | sed -n '1,200p'
 
       - name: Login to Azure (OIDC)
         uses: azure/login@v2
@@ -76,7 +73,7 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_211B962CA6194E1880A83FABAA413EC7 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_B5EEBEDF7C58486BA28CDE721221EE0A }}
 
-      # Optional: manage app settings via CI (uncomment and set your RG)
+      # Optional: manage app settings via CI (uncomment and set your resource group)
       # - name: Ensure app settings (optional)
       #   run: |
       #     az webapp config appsettings set \
@@ -90,4 +87,4 @@ jobs:
         with:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
           slot-name: Production
-          package: ${{ env.ARTIFACT_DIR }}  # <<< points to the folder that exists
+          package: .    # <<< Deploy the root so main.py is at the app root on the server
