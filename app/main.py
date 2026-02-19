@@ -2,7 +2,7 @@ import os, json, uuid, math, tempfile
 from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.responses import JSONResponse, HTMLResponse
+from starlette.responses import JSONResponse, HTMLResponse, Response
 
 from pydantic import BaseModel
 from openai import AzureOpenAI
@@ -155,6 +155,30 @@ def speech_token():
     # Tokens last ~10 minutes; browser should renew. [1](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/)[2](https://docs.azure.cn/en-us/ai-services/speech-service/troubleshooting)
     return {"token": r.text, "region": SPEECH_REGION, "expiresInSeconds": 600}
 
+# Avatar TURN/ICE relay token for WebRTC (Real-time Avatar)
+@app.get("/api/avatar/relay-token", tags=["speech"])
+def avatar_relay_token():
+    if not (SPEECH_KEY and SPEECH_REGION):
+        raise HTTPException(status_code=500, detail="SPEECH_KEY and SPEECH_REGION must be set.")
+
+    url = f"https://{SPEECH_REGION}.tts.speech.microsoft.com/cognitiveservices/avatar/relay/token/v1"
+    try:
+        r = requests.get(url, headers={"Ocp-Apim-Subscription-Key": SPEECH_KEY}, timeout=15)
+    except requests.RequestException as e:
+        # Network or timeout error contacting the Speech service
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # If the upstream returns an error, mirror the body and status
+    if r.status_code >= 400:
+        return Response(
+            content=r.text,
+            status_code=r.status_code,
+            media_type=r.headers.get("content-type", "text/plain")
+        )
+
+    # On success, proxy the JSON through (contains urls, username, credential, ttl)
+    return r.json()
+    
 # Market: top stocks via Azure AI Search with curated fallback
 @app.get("/market/top-stocks", tags=["market"])
 def market_top_stocks(sector: str):
