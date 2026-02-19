@@ -11,6 +11,8 @@ azure-cognitiveservices-speech==1.41.1
 # Azure SQL
 sqlalchemy>=2.0.36
 pyodbc>=5.1.0
+flask==3.0.2
+
 
 # Azure AI Search
 azure-search-documents>=11.6.0
