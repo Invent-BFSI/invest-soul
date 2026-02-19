@@ -1,108 +1,142 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Innoviya — invest-soul</title>
+  <title>Azure Real-time Avatar (WebRTC)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body { font-family: system-ui, Arial, sans-serif; margin: 20px; }
-    #log { border:1px solid #ddd; padding:12px; height:260px; overflow:auto; background:#fafafa }
-    #avatarVideo { width: 520px; height: 292px; background: #000; }
-    .row { margin: 8px 0; }
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; }
+    #video { width: 100%; max-width: 960px; aspect-ratio: 16/9; background: #000; }
+    #controls { margin-top: 12px; display: flex; gap: 8px; }
+    input[type="text"] { flex: 1; padding: 8px; }
+    button { padding: 8px 12px; }
+    #log { font-size: 12px; white-space: pre-wrap; background: #f6f8fa; margin-top: 12px; padding: 8px; }
   </style>
 </head>
 <body>
-<h2>Innoviya — AI Investment Advisory</h2>
+  <h1>Azure Real-time Avatar</h1>
 
-<div class="row">
-  <input id="txtUser" style="width:70%" placeholder="Speak or type your message..." />
-  <button id="btnSend">Send</button>
-  <button id="btnSpeak">🎙️ STT once</button>
-</div>
+  <video id="video" autoplay playsinline muted></video>
+  <audio id="audio" autoplay></audio>
 
-<div class="row">
-  <video id="avatarVideo" autoplay playsinline muted></video>
-  <div>
-    <label>Voice:</label> <input id="voice" value="en-US-JennyNeural"/>
-    <label>Avatar:</label> <input id="avatarChar" value="lisa"/>
+  <div id="controls">
+    <button id="start">Start Session</button>
   </div>
-</div>
 
-<div id="log"></div>
+  <div id="speakRow" style="margin-top:8px; display:none;">
+    <input id="text" placeholder="Type something for the avatar to say…" />
+    <button id="speak">Speak</button>
+    <button id="stop">Stop</button>
+    <button id="close">Close Session</button>
+  </div>
 
-<!-- Speech SDK -->
-https://aka.ms/csspeech/jsbrowserpackageraw</script>
-<script>
-const API_BASE = location.origin;
-let sessionId = null, speechToken=null, speechRegion=null, synthesizer=null, pc=null;
+  <div id="log"></div>
 
-function log(s, who="sys"){ const el=document.getElementById('log'); const p=document.createElement('div'); p.textContent=`[${who}] ${s}`; el.appendChild(p); el.scrollTop=el.scrollHeight; }
+  <!-- Load Speech SDK (official) -->
+  <script src="https://aka.ms/csspeech/jsbrowserpackageraw"></script>
 
-async function fetchSpeechToken(){
-  const r=await fetch(`${API_BASE}/speech/token`); if(!r.ok) throw new Error("token failed"); return r.json();
-}
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const log = (...a) => { console.log(...a); $('log').textContent += a.join(' ') + '\n'; };
 
-async function ensureAvatar(){
-  const {token,region}=await fetchSpeechToken(); speechToken=token; speechRegion=region;
-  const speechConfig=SpeechSDK.SpeechConfig.fromAuthorizationToken(token,region);
-  speechConfig.speechSynthesisVoiceName=document.getElementById('voice').value||'en-US-JennyNeural';
-  const avatarConfig=new SpeechSDK.AvatarConfig(document.getElementById('avatarChar').value||'lisa','casual'); // AvatarSynthesizer usage [3](https://learn.microsoft.com/en-us/javascript/api/microsoft-cognitiveservices-speech-sdk/avatarsynthesizer?view=azure-node-latest)
-  synthesizer=new SpeechSDK.AvatarSynthesizer(speechConfig, avatarConfig);
-  pc=new RTCPeerConnection();
-  document.getElementById('avatarVideo').onloadedmetadata = ()=>{};
-  pc.ontrack=(e)=>{ document.getElementById('avatarVideo').srcObject=e.streams[0]; };
-  await synthesizer.startAvatarAsync(pc); // starts WebRTC flow; SDK docs detail this call. [3](https://learn.microsoft.com/en-us/javascript/api/microsoft-cognitiveservices-speech-sdk/avatarsynthesizer?view=azure-node-latest)
-}
+    let peer, avatarSynthesizer, region;
 
-async function sttOnce(){
-  const tok = speechToken ? {token:speechToken,region:speechRegion} : await fetchSpeechToken();
-  const speechConfig=SpeechSDK.SpeechConfig.fromAuthorizationToken(tok.token, tok.region);
-  speechConfig.speechRecognitionLanguage="en-US";
-  const audioConfig=SpeechSDK.AudioConfig.fromDefaultMicrophoneInput();
-  const recognizer=new SpeechSDK.SpeechRecognizer(speechConfig, audioConfig); // recognizeOnce pattern [11](https://docs.azure.cn/en-us/ai-services/speech-service/how-to-recognize-speech)
-  return new Promise((resolve,reject)=>{
-    recognizer.recognizeOnceAsync(res=>{
-      if(res.reason===SpeechSDK.ResultReason.RecognizedSpeech) resolve(res.text);
-      else reject(res.errorDetails||'no speech');
-      recognizer.close();
-    });
-  });
-}
+    async function getConfig() {
+      const r = await fetch('/api/config');
+      if (!r.ok) throw new Error('Failed to load config');
+      const j = await r.json();
+      region = j.region;
+      return j;
+    }
 
-async function chatSend(text){
-  const r=await fetch(`${API_BASE}/chat`,{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({ sessionId, temperature:0.3, max_tokens:800, messages:[{role:'user', content:text}] })
-  });
-  if(!r.ok) throw new Error("chat failed");
-  const data=await r.json(); sessionId=data.sessionId; return data.content;
-}
+    async function getSpeechToken() {
+      const r = await fetch('/api/speech/token');
+      if (!r.ok) throw new Error('Failed to fetch speech token');
+      return r.json(); // { token, region }
+    }
 
-async function handleUserText(text){
-  log(text, "you"); let reply = await chatSend(text);
+    async function getRelay() {
+      const r = await fetch('/api/avatar/relay-token');
+      if (!r.ok) throw new Error('Failed to fetch relay token');
+      return r.json(); // { urls:[...], username:'...', credential:'...', ttl:'...' }
+    }
 
-  // Tool trigger - fetch top stocks
-  if(reply.trim().startsWith("#fetch-top-stocks:")){
-    const sector = reply.split(":")[1].trim();
-    const r = await fetch(`${API_BASE}/market/top-stocks?sector=${encodeURIComponent(sector)}`);
-    const data = await r.json();
-    reply = await chatSend(`Market data received: ${JSON.stringify({marketTopStocks: data.top5})}`);
-  }
+    async function startSession() {
+      await getConfig();
 
-  log(reply, "ai");
-  try{
-    if(!synthesizer) await ensureAvatar();
-    await synthesizer.speakTextAsync(reply); // speak via avatar (WebRTC) [12](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/text-to-speech-avatar/real-time-synthesis-avatar)
-  }catch(e){ console.warn("avatar speak", e); }
-}
+      log('Fetching short-lived Speech token…');
+      const { token } = await getSpeechToken();
 
-document.getElementById('btnSpeak').addEventListener('click', async()=>{
-  try{ const t=await sttOnce(); document.getElementById('txtUser').value=t; await handleUserText(t); }
-  catch(e){ log("STT: "+e, "err"); }
-});
-document.getElementById('btnSend').addEventListener('click', async()=>{
-  const t=document.getElementById('txtUser').value.trim(); if(t) await handleUserText(t);
-});
-</script>
+      log('Fetching ICE relay details…');
+      const relay = await getRelay();
+      const iceServers = [{
+        urls: relay.urls.filter(u => u.startsWith('turn:')),
+        username: relay.username,
+        credential: relay.credential
+      }];
+
+      // 1) Create WebRTC PeerConnection with ICE (TURN) servers
+      peer = new RTCPeerConnection({ iceServers });
+      peer.oniceconnectionstatechange = () => log('ICE state:', peer.iceConnectionState);
+
+      // 2) Wire remote tracks to <video>/<audio>
+      peer.ontrack = (event) => {
+        if (event.track.kind === 'video') $('video').srcObject = event.streams[0];
+        if (event.track.kind === 'audio') $('audio').srcObject = event.streams[0];
+      };
+      peer.addTransceiver('video', { direction: 'sendrecv' });
+      peer.addTransceiver('audio', { direction: 'sendrecv' });
+
+      // 3) Configure Speech + Avatar with token
+      const SpeechSDK = window.SpeechSDK;
+      const speechConfig = SpeechSDK.SpeechConfig.fromAuthorizationToken(token, region);
+      speechConfig.speechSynthesisVoiceName = "en-US-JennyNeural";
+
+      const avatarConfig = new SpeechSDK.AvatarConfig("lisa", "casual-sitting");
+      avatarConfig.backgroundColor = "#00FF00FF";
+
+      // 4) Start the avatar (negotiates WebRTC)
+      log('Starting avatar…');
+      avatarSynthesizer = new SpeechSDK.AvatarSynthesizer(speechConfig, avatarConfig);
+
+      await avatarSynthesizer.startAvatarAsync(peer)
+        .then(() => log('Avatar started. You should see idle video.'))
+        .catch((err) => { throw new Error('Avatar failed to start: ' + err); });
+
+      $('speakRow').style.display = 'flex';
+      $('video').muted = false; // unmute after user gesture
+    }
+
+    async function speak() {
+      const text = $('text').value.trim();
+      if (!text) return;
+      try {
+        const result = await avatarSynthesizer.speakTextAsync(text);
+        if (result.reason === window.SpeechSDK.ResultReason.SynthesizingAudioCompleted) {
+          log('Synthesis complete.');
+        } else {
+          log('Synthesis did not complete. ResultId:', result.resultId);
+        }
+      } catch (e) {
+        log('Speak error:', e.message);
+      }
+    }
+
+    async function stopSpeaking() {
+      try { await avatarSynthesizer.stopSpeakingAsync(); } catch {}
+    }
+
+    function closeSession() {
+      try { avatarSynthesizer?.close(); } catch {}
+      try { peer?.close(); } catch {}
+      log('Session closed.');
+      $('speakRow').style.display = 'none';
+    }
+
+    $('start').addEventListener('click', startSession);
+    $('speak').addEventListener('click', speak);
+    $('stop').addEventListener('click', stopSpeaking);
+    $('close').addEventListener('click', closeSession);
+  </script>
 </body>
 </html>
