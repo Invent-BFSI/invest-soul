@@ -2,8 +2,14 @@ name: Build and deploy Python app to Azure Web App - invest-soul
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "main" ]
   workflow_dispatch:
+
+env:
+  AZURE_WEBAPP_NAME: invest-soul
+  PYTHON_VERSION: "3.10"
+  ARTIFACT_NAME: python-app
+  ARTIFACT_DIR: ./python-app   # where we download the artifact in the deploy job
 
 jobs:
   build:
@@ -12,25 +18,27 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      # Optional: early failure detection locally
-      - name: Create venv & install deps (local)
+      # Optional but recommended: early failure detection (does not affect deploy)
+      - name: Install dependencies locally (optional)
         run: |
           python -m venv antenv
           source antenv/bin/activate
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # Upload a clean artifact (exclude venv, git, cache, and any alt entrypoints)
       - name: Upload artifact for deployment
         uses: actions/upload-artifact@v4
         with:
-          name: python-app
+          name: ${{ env.ARTIFACT_NAME }}
           path: |
             .
             !antenv/
@@ -38,7 +46,6 @@ jobs:
             !.github/
             !**/__pycache__/**
             !server.js
-            # If you kept a Flask fallback file, exclude it:
             !app.py
 
   deploy:
@@ -49,32 +56,38 @@ jobs:
       contents: read
 
     steps:
-      - name: Download artifact
+      - name: Download artifact from build job
         uses: actions/download-artifact@v4
         with:
-          name: python-app
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.ARTIFACT_DIR }}   # ensures files land in ./python-app
 
-      - name: Azure login (OIDC)
+      - name: List downloaded files (debug)
+        run: |
+          echo "PWD=$(pwd)"
+          ls -la
+          echo "----- ${{ env.ARTIFACT_DIR }} -----"
+          ls -la ${{ env.ARTIFACT_DIR }} | sed -n '1,200p'
+
+      - name: Login to Azure (OIDC)
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_37820E749A484DC1A824146565EEF3D9 }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_211B962CA6194E1880A83FABAA413EC7 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_B5EEBEDF7C58486BA28CDE721221EE0A }}
 
-      # Optional: set app settings via CLI (only if you want to manage config in CI)
-      # - name: Ensure app settings
+      # Optional: manage app settings via CI (uncomment and set your RG)
+      # - name: Ensure app settings (optional)
       #   run: |
       #     az webapp config appsettings set \
-      #       --resource-group <YOUR_RG> \
-      #       --name invest-soul \
+      #       --resource-group <YOUR_RESOURCE_GROUP> \
+      #       --name ${{ env.AZURE_WEBAPP_NAME }} \
       #       --settings SCM_DO_BUILD_DURING_DEPLOYMENT=true
 
-      - name: Deploy to Azure Web App
+      - name: Deploy to Azure Web App (OneDeploy)
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
-          app-name: invest-soul
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
           slot-name: Production
-          package: ./python-app
-
-
+          package: ${{ env.ARTIFACT_DIR }}  # <<< points to the folder that exists
