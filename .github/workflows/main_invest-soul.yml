@@ -96,6 +96,18 @@ jobs:
       - name: Wait for SCM restart to finish
         run: sleep 25
 
+      - name: Download artifact (to workspace root)
+        uses: actions/download-artifact@v4
+        with:
+          name: python-app
+          path: .          # unpack into root
+
+      - name: Sanity check before deploy
+        run: |
+          ls -la | sed -n '1,200p'
+          test -f main.py || (echo "ERROR: main.py missing at repo root"; exit 1)
+          test -f requirements.txt || (echo "ERROR: requirements.txt missing"; exit 1)
+
       - name: Deploy to Azure Web App (OneDeploy)
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
@@ -103,6 +115,7 @@ jobs:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
           slot-name: Production
           package: .    # <<< Deploy the root so main.py is at the app root on the server
+
 
 
 
