@@ -142,6 +142,9 @@ def health():
             "search": bool(os.getenv("AZURE_SEARCH_ENDPOINT"))
         }
     }
+@app.get("/healthy")
+def health_check():
+    return { "status":"healthy"}
 
 # Speech token for browser STT/Avatar
 @app.get("/speech/token", tags=["speech"])
